@@ -60,7 +60,7 @@
   //眼鏡(loadに時間かかるので初期値null)
   var model_Bag = null;
   var handle_margin = -0.5; // bagの持ち手と手の座標で計算するため、bagの中心座標から持ち手までのマージンが必要
-  loader.load('./lv.glb',
+  loader.load('./obj/lv.glb',
     function (gltf) {
       model_Bag = gltf.scene; // THREE.Group
       model_Bag.name = "FurBag"
