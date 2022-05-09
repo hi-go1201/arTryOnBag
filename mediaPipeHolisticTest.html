@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>arTryOnBag</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/three@0.140.0/build/three.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/three@0.140.0/examples/js/loaders/GLTFLoader.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/three@0.140.0/examples/js/libs/stats.min.js" crossorigin="anonymous"></script>
+</head>
+
+<body>
+  <div class="container">
+    <video class="input_video" style="display: none;"></video>
+    <canvas class="output_canvas" style="display: none;"></canvas>
+  </div>
+</body>
+
+</html>
+<script type="module">
+  const videoElement = document.getElementsByClassName('input_video')[0];
+  const canvasElement = document.getElementsByClassName('output_canvas')[0];
+  const canvasCtx = canvasElement.getContext('2d');
+
+  // Stats
+  const stats = new Stats();
+  stats.setMode(0);
+  stats.domElement.style.position = "absolute";
+  stats.domElement.style.left = "0px";
+  stats.domElement.style.top = "0px";
+  document.body.appendChild(stats.dom);
+
+  // Set up the main camera
+  // new THREE.PerspectiveCamera(視野角, アスペクト比, near, far)
+  const webglCamera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+  webglCamera.position.z = 1;
+
+  const scene = new THREE.Scene();
+
+  // Create lights
+  var light = new THREE.PointLight(0xEEEEEE);
+  light.position.set(20, 0, 20);
+  scene.add(light);
+  var lightAmb = new THREE.AmbientLight(0x777777);
+  scene.add(lightAmb);
+  // 平行光源
+  var lightDir = new THREE.DirectionalLight(0xFFFFFF);
+  lightDir.intensity = 1; // 光の強さを倍に
+  lightDir.position.set(1, 1, 1);
+  scene.add(lightDir);
+
+  //3Dモデルをロード。今回はglb形式を使用  
+  const loader = new THREE.GLTFLoader();
+
+  //眼鏡(loadに時間かかるので初期値null)
+  var model_Bag = null;
+  var handle_margin = -0.5; // bagの持ち手と手の座標で計算するため、bagの中心座標から持ち手までのマージンが必要
+  loader.load('./lv.glb',
+    function (gltf) {
+      model_Bag = gltf.scene; // THREE.Group
+      model_Bag.name = "FurBag"
+      model_Bag.visible = true;
+      model_Bag.scale.set(0.04, 0.04, 0.04);
+      model_Bag.position.set(0.0, 0.0, 0.0);
+      model_Bag.rotation.x = 0.0;
+      model_Bag.rotation.y = 1.5;
+      model_Bag.rotation.z = 0.0;
+      scene.add(model_Bag);
+    },
+    // called while loading is progressing
+    function (xhr) {
+      console.log('Bag: ' + (xhr.loaded / xhr.total * 100) + '% loaded');
+    },
+    // called when loading has errors
+    function (error) {
+      console.log('An error happened');
+    }
+  );
+
+  // renderer
+  var renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: true
+  });
+  renderer.setClearColor(new THREE.Color(), 0);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  //renderer.setSize(1280, 720);
+  renderer.domElement.style.position = 'absolute';
+  renderer.domElement.style.top = '0px';
+  renderer.domElement.style.left = '0px';
+  renderer.autoClear = false; // To allow render overlay on top of sprited sphere
+  //document.body.appendChild( renderer.domElement );
+  document.getElementsByClassName("container")[0].appendChild(renderer.domElement);
+  renderer.domElement.id = "webgl";
+  //canvas size
+  renderer.domElement.width = window.innerWidth;
+  renderer.domElement.height = window.innerHeight;
+
+  // 初期化のために実行
+  onResize();
+  // リサイズイベント発生時に実行
+  window.addEventListener('resize', onResize);
+
+  function onResize() {
+    // サイズを取得
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    // レンダラーのサイズを調整する
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(width, height);
+
+    // カメラのアスペクト比を正す
+    webglCamera.aspect = width / height;
+    webglCamera.updateProjectionMatrix();
+  }
+
+  function onResults(results) {
+
+    stats.update(); // 毎フレームごとにstats.update()を呼ぶ必要がある。
+    requestAnimationFrame(render);
+
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    //canvasCtx.drawImage(results.segmentationMask, 0, 0, canvasElement.width, canvasElement.height);
+
+    // Only overwrite existing pixels.
+    canvasCtx.globalCompositeOperation = 'source-in';
+    //canvasCtx.fillStyle = '#00FF00';
+    //canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+
+    // Only overwrite missing pixels.
+    canvasCtx.globalCompositeOperation = 'destination-atop';
+    canvasCtx.drawImage(
+      results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+    canvasCtx.globalCompositeOperation = 'source-over';
+    /*
+    drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS,
+      { color: '#00FF00', lineWidth: 4 });
+    drawLandmarks(canvasCtx, results.poseLandmarks,
+      { color: '#FF0000', lineWidth: 2 });
+    /*
+    drawConnectors(canvasCtx, results.faceLandmarks, FACEMESH_TESSELATION,
+      { color: '#C0C0C070', lineWidth: 1 });
+    */
+    //console.log(results.leftHandLandmarks);
+    //console.log(HAND_CONNECTIONS);
+    if (results.leftHandLandmarks && !results.rightHandLandmarks) {
+      //console.log(results.leftHandLandmarks[0].x);
+      console.log(results.leftHandLandmarks[0].x);
+      //HandLandmarksの上下左右範囲0~1に対してthreejsの上下左右範囲が1~-1なので変換処理必要
+      if (results.leftHandLandmarks[0].x <= 0.5) {
+        var calcModelPosX = -1.0 + (results.leftHandLandmarks[0].x * 2);
+      }
+      else if (results.leftHandLandmarks[0].x > 0.5) {
+        var calcModelPosX = (results.leftHandLandmarks[0].x * 2) - 1;
+      }
+
+      if (results.leftHandLandmarks[0].y <= 0.5) {
+        var calcModelPosY = 1.0 - (results.leftHandLandmarks[0].y * 2);
+      }
+      else if (results.leftHandLandmarks[0].y > 0.5) {
+        var calcModelPosY = (results.leftHandLandmarks[0].y * -2) + 1;
+      }
+      model_Bag.position.set(calcModelPosX * 0.5, calcModelPosY + handle_margin, 0.0);
+      //model_Bag.visible = true;
+    }
+    else if (!results.leftHandLandmarks && results.rightHandLandmarks) {
+      //console.log(results.leftHandLandmarks[0].x);
+      console.log(results.rightHandLandmarks[0].x);
+      //HandLandmarksの上下左右範囲0~1に対してthreejsの上下左右範囲が1~-1なので変換処理必要
+      if (results.rightHandLandmarks[0].x <= 0.5) {
+        var calcModelPosX = -1.0 + (results.rightHandLandmarks[0].x * 2);
+      }
+      else if (results.rightHandLandmarks[0].x > 0.5) {
+        var calcModelPosX = (results.rightHandLandmarks[0].x * 2) - 1;
+      }
+
+      if (results.rightHandLandmarks[0].y <= 0.5) {
+        var calcModelPosY = 1.0 - (results.rightHandLandmarks[0].y * 2);
+      }
+      else if (results.rightHandLandmarks[0].y > 0.5) {
+        var calcModelPosY = (results.rightHandLandmarks[0].y * -2) + 1;
+      }
+      model_Bag.position.set(calcModelPosX * 0.5, calcModelPosY + handle_margin, 0.0);
+      //model_Bag.visible = true;
+      var rotate_w = calcHandRotate(results.rightHandLandmarks[6], results.rightHandLandmarks[14]);
+      //renderObjectRotate(model_Bag, rotate_w);
+      model_Bag.rotation.y = 1.5 + rotate_w;
+    }
+    else if (!results.leftHandLandmarks && results.rightHandLandmarks) {
+      //console.log(results.leftHandLandmarks[0].x);
+      console.log(results.rightHandLandmarks[0].x);
+      //HandLandmarksの上下左右範囲0~1に対してthreejsの上下左右範囲が1~-1なので変換処理必要
+      if (results.rightHandLandmarks[0].x <= 0.5) {
+        var calcModelPosX = -1.0 + (results.rightHandLandmarks[0].x * 2);
+      }
+      else if (results.rightHandLandmarks[0].x > 0.5) {
+        var calcModelPosX = (results.rightHandLandmarks[0].x * 2) - 1;
+      }
+
+      if (results.rightHandLandmarks[0].y <= 0.5) {
+        var calcModelPosY = 1.0 - (results.rightHandLandmarks[0].y * 2);
+      }
+      else if (results.rightHandLandmarks[0].y > 0.5) {
+        var calcModelPosY = (results.rightHandLandmarks[0].y * -2) + 1;
+      }
+      model_Bag.position.set(calcModelPosX * 0.5, calcModelPosY + handle_margin, 0.0);
+      //model_Bag.visible = true;
+    }
+    //else { model_Bag.visible = false; }
+    /*
+    drawConnectors(canvasCtx, results.leftHandLandmarks, HAND_CONNECTIONS,
+      { color: '#CC0000', lineWidth: 5 });
+    drawLandmarks(canvasCtx, results.leftHandLandmarks,
+      { color: '#00FF00', lineWidth: 2 });
+    drawConnectors(canvasCtx, results.rightHandLandmarks, HAND_CONNECTIONS,
+      { color: '#00CC00', lineWidth: 5 });
+    drawLandmarks(canvasCtx, results.rightHandLandmarks,
+      { color: '#FF0000', lineWidth: 2 });
+    */
+    canvasCtx.restore();
+  }
+
+  //2本の指の各関節位置を基準に指の平均回転角度w算出
+  function calcHandRotate(finger1, finger2) {
+    //パラメータチューニング用変数
+    var alpha = 1.0;
+
+    //人差し指
+    var finger1_x0 = finger1.x;
+    var finger1_z0 = finger1.z;
+    //薬指
+    var finger2_x0 = finger2.x;
+    var finger2_z0 = finger2.z;
+
+    //人差し指と薬指の各関節位置を基準に指の平均回転角度w算出
+    //var w_0 = Math.atan2(finger1_z0, finger1_x0) * (180 / Math.PI);
+    var w_0 = Math.atan2(finger1_z0 - finger2_z0, finger1_x0 - finger2_x0) * (180 / Math.PI);
+    //var w_1 = Math.atan2(finger1_z1 - finger2_z1, finger1_x1 - finger2_x1) * (180 / Math.PI);
+    //var w_2 = Math.atan2(finger1_z2 - finger2_z2, finger1_x2 - finger2_x2) * (180 / Math.PI);
+    //var w_3 = Math.atan2(finger1_z3 - finger2_z3, finger1_x3 - finger2_x3) * (180 / Math.PI);
+
+    //var avg_w = (w_0 + w_1 + w_2 + w_3) / 4;
+    var avg_w = w_0;
+    //wの増減量が少なければalpha倍にする
+    //var fix_w = avg_w * alpha;
+    var fix_w = avg_w * (Math.PI / 180);
+    console.log("avg_w:" + avg_w + ", fix_w:" + fix_w);
+    return fix_w;
+    //return avg_w;
+  }
+
+  function renderObjectRotate(model, rotate) {
+    //手をグーにしてもらった状態で表示サイズや回転できるよう考慮する(手を開くとサイズ大きくなる)
+
+
+    // 2.手首の傾きに応じて腕時計の軸回転
+    var alpha = 1;
+    var beta = 1;
+    if (rotate > 90) {
+      alpha = -1;
+      beta = -1;
+    } else if (rotate < 0) {
+      alpha = -1;
+    }
+
+    //手首回転調整 理想はw=0度で正面、w=-1~-90で上向き回転、1~90で下向き回転、w=±180で裏
+    //fix_w:1~90で上向き回転、-1~-90で下向き回転
+    var fix_w = rotate * -1.1;
+    //正面と裏のチラつき防止
+    if (fix_w > 100 || fix_w < -100) fix_w = 0;
+
+    //console.log("hand_w:" + model_info.w);
+    //console.log("fix_w:" + fix_w);
+
+    //上向きベクトルを生成
+    var axis = new THREE.Vector3(); //←---------------------------------（１）
+    var theta = THREE.Math.degToRad(-90 * alpha); //正面向くように−90固定
+    var phi = THREE.Math.degToRad(rotate * beta); //手首の角度
+    var angle = THREE.Math.degToRad(fix_w); //手首の回転
+    axis.z = Math.cos(theta);
+    axis.x = Math.sin(theta) * Math.cos(phi);
+    axis.y = Math.sin(theta) * Math.sin(phi);
+
+    //console.log("theta:" + theta +", phi:" + model_info.angle + ", angle:" + fixAngle);
+    //オブジェクトの上向きを指定
+    model.lookAt(axis);//←----------回転行列とクォータニオンが更新される（２）
+    //上向きベクトルを回転軸としてangle[rad]回転するクォータニオンを生成
+    var q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), angle); //←（３）
+    //オブジェクトを回転軸周りで回転
+    model.quaternion.multiply(q); //←-----------------------------------（４）
+
+    // 3.手首の座標を3D空間座標に変換 0:-0.4,196.5:0.0,392:0.4
+    // 左右のpositionが−1~1じゃない場合にパラメータ調整必要。現状はpixel3aに最適化
+    //console.log("finger_pos:[", + model_info.x + "," + model_info.y + "]");
+    var finger3Dx = (model.position.x * 2 / window.innerWidth) - 1.0;
+    var finger3Dy = -(model.position.y * 2 / window.innerHeight) + 1.0;
+    //console.log("finger3Dpos:[", + finger3Dx + "," + finger3Dy + "]");
+    //移動座標をパラメータ調整
+    //finger3Dx = finger3Dx + fixModelPositionRate_x;
+    //finger3Dy = finger3Dy + fixModelPositionRate_y;
+    //console.log("fix_finger3Dpos:[", + finger3Dx + "," + finger3Dy + "]");
+
+    // 4.腕時計を手首の検出座標に移動
+    //model.position.set(finger3Dx, finger3Dy, 0.0);
+    //console.log("angle:" + model_info.angle);
+    //console.log("distance:" + model_info.distance);
+
+  }
+
+  function render(time) {
+
+    time *= 0.001;
+
+    // create camera image
+    const texture = new THREE.Texture(
+      document.getElementsByClassName('output_canvas')[0], THREE.UVMapping, THREE.ClampToEdgeWrapping,
+      THREE.ClampToEdgeWrapping);
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.needsUpdate = true;
+    scene.background = texture;
+
+
+    //stats.update(); // 毎フレームごとにstats.update()を呼ぶ必要がある。
+
+    renderer.clear();
+    renderer.clearDepth();
+    renderer.render(scene, webglCamera);
+    requestAnimationFrame(render);
+  }
+
+  const holistic = new Holistic({
+    locateFile: (file) => {
+      return `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`;
+    }
+  });
+  holistic.setOptions({
+    modelComplexity: 1,
+    smoothLandmarks: true,
+    enableSegmentation: true,
+    smoothSegmentation: true,
+    refineFaceLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+  });
+  holistic.onResults(onResults);
+
+  const camera = new Camera(videoElement, {
+    onFrame: async () => {
+      await holistic.send({ image: videoElement });
+    },
+    width: window.innerWidth,
+    height: window.innerHeight
+  });
+  camera.start();
+</script>
