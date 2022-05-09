@@ -356,8 +356,8 @@
   holistic.onResults(onResults);
 
   //const videoElement = document.createElement('video');
-  videoElement.width = 300;
-  videoElement.height = 300;
+  videoElement.width = window.innerWidth;
+  videoElement.height = window.innerHeight;
   videoElement.setAttribute('playsinline', '');
   videoElement.muted = true;
   videoElement.autoplay = true;
