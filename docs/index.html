@@ -166,6 +166,7 @@
     */
     //console.log(results.leftHandLandmarks);
     //console.log(HAND_CONNECTIONS);
+    /*
     if (model_Bag && results.leftHandLandmarks && !results.rightHandLandmarks) {
       //console.log(results.leftHandLandmarks[0].x);
       console.log(results.leftHandLandmarks[0].x);
@@ -186,7 +187,8 @@
       model_Bag.position.set(calcModelPosX * 0.5, calcModelPosY + handle_margin, 0.0);
       //model_Bag.visible = true;
     }
-    else if (model_Bag && !results.leftHandLandmarks && results.rightHandLandmarks) {
+    else */
+    if (model_Bag && results.rightHandLandmarks) {
       //console.log(results.leftHandLandmarks[0].x);
       console.log(results.rightHandLandmarks[0].x);
       //HandLandmarksの上下左右範囲0~1に対してthreejsの上下左右範囲が1~-1なので変換処理必要
@@ -209,6 +211,7 @@
       //renderObjectRotate(model_Bag, rotate_w);
       model_Bag.rotation.y = 1.5 + rotate_w;
     }
+    /*
     else if (model_Bag && !results.leftHandLandmarks && results.rightHandLandmarks) {
       //console.log(results.leftHandLandmarks[0].x);
       console.log(results.rightHandLandmarks[0].x);
@@ -230,6 +233,7 @@
       //model_Bag.visible = true;
     }
     //else { model_Bag.visible = false; }
+    */
     /*
     drawConnectors(canvasCtx, results.leftHandLandmarks, HAND_CONNECTIONS,
       { color: '#CC0000', lineWidth: 5 });
