@@ -16,115 +16,130 @@
 
 <body>
   <div class="container">
-    <video class="input_video" style="display: none;"></video>
-    <canvas class="output_canvas" style="display: none;"></canvas>
+    <video class="input_video"></video>
+    <div class="canvas-container">
+      <canvas class="output_canvas" id="canvas" style="display: none;"></canvas>
+    </div>
   </div>
 </body>
 
 </html>
-<script type="module">
-  const videoElement = document.getElementsByClassName('input_video')[0];
-  const canvasElement = document.getElementsByClassName('output_canvas')[0];
-  const canvasCtx = canvasElement.getContext('2d');
+<script async src="./opencv.js" onload="opencvIsReady()" type="text/javascript"></script>
+<script>
+  // whether streaming video from the camera.
+  let streaming = false;
+  var videoElement = document.getElementsByClassName('input_video')[0];
+  document.body.append(videoElement);
+  videoElement.id = "video";
+  videoElement.style.display = "none";
+  //let video = document.getElementById("video");
 
-  // Stats
-  const stats = new Stats();
-  stats.setMode(0);
-  stats.domElement.style.position = "absolute";
-  stats.domElement.style.left = "0px";
-  stats.domElement.style.top = "0px";
-  document.body.appendChild(stats.dom);
+  // Holistic
+  //カバン(loadに時間かかるので初期値null)
+  let model_Bag = null;
 
-  // Set up the main camera
-  // new THREE.PerspectiveCamera(視野角, アスペクト比, near, far)
-  const webglCamera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
-  webglCamera.position.z = 1;
 
-  const scene = new THREE.Scene();
-
-  // Create lights
-  var light = new THREE.PointLight(0xEEEEEE);
-  light.position.set(20, 0, 20);
-  scene.add(light);
-  var lightAmb = new THREE.AmbientLight(0x777777);
-  scene.add(lightAmb);
-  // 平行光源
-  var lightDir = new THREE.DirectionalLight(0xFFFFFF);
-  lightDir.intensity = 1; // 光の強さを倍に
-  lightDir.position.set(1, 1, 1);
-  scene.add(lightDir);
-
-  //3Dモデルをロード。今回はglb形式を使用  
-  const loader = new THREE.GLTFLoader();
-
-  //眼鏡(loadに時間かかるので初期値null)
-  var model_Bag = null;
-  var handle_margin = -0.5; // bagの持ち手と手の座標で計算するため、bagの中心座標から持ち手までのマージンが必要
-  loader.load('./obj/lv.glb',
-    function (gltf) {
-      model_Bag = gltf.scene; // THREE.Group
-      model_Bag.name = "FurBag"
-      model_Bag.visible = true;
-      model_Bag.scale.set(0.04, 0.04, 0.04);
-      model_Bag.position.set(0.0, 0.0, 0.0);
-      model_Bag.rotation.x = 0.0;
-      model_Bag.rotation.y = 1.5;
-      model_Bag.rotation.z = 0.0;
-      scene.add(model_Bag);
-    },
-    // called while loading is progressing
-    function (xhr) {
-      console.log('Bag: ' + (xhr.loaded / xhr.total * 100) + '% loaded');
-    },
-    // called when loading has errors
-    function (error) {
-      console.log('An error happened');
-    }
-  );
-
-  // renderer
-  var renderer = new THREE.WebGLRenderer({
-    antialias: true,
-    alpha: true
-  });
-  renderer.setClearColor(new THREE.Color(), 0);
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  //renderer.setSize(1280, 720);
-  renderer.domElement.style.position = 'absolute';
-  renderer.domElement.style.top = '0px';
-  renderer.domElement.style.left = '0px';
-  renderer.autoClear = false; // To allow render overlay on top of sprited sphere
-  //document.body.appendChild( renderer.domElement );
-  document.getElementsByClassName("container")[0].appendChild(renderer.domElement);
-  renderer.domElement.id = "webgl";
-  //canvas size
-  renderer.domElement.width = window.innerWidth;
-  renderer.domElement.height = window.innerHeight;
-
-  // 初期化のために実行
-  onResize();
-  // リサイズイベント発生時に実行
-  window.addEventListener('resize', onResize);
-
-  function onResize() {
-    // サイズを取得
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-
-    // レンダラーのサイズを調整する
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(width, height);
-
-    // カメラのアスペクト比を正す
-    webglCamera.aspect = width / height;
-    webglCamera.updateProjectionMatrix();
+  function opencvIsReady() {
+    console.log('OpenCV.js is ready');
+    startCamera();
   }
+
+  function startCamera() {
+    if (streaming) return;
+    console.log("display_size:" + window.innerWidth + "," + window.innerHeight);
+    navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: "environment",
+        zoom: true,
+        width: { min: 640, ideal: 1920, max: 1920 },
+        height: { min: 480, ideal: 1080, max: 1080 }
+      }
+    })
+      .then(function (stream) {
+        videoElement.srcObject = stream;
+        videoElement.setAttribute("playsinline", true); // required to tell iOS safari we don't want fullscreen
+        videoElement.setAttribute("autoplay", true);
+        videoElement.setAttribute("muted", true);
+        // camera ズーム付けたいがsafari非対応のため未対応
+        const [track] = stream.getVideoTracks();
+        const capabilities = track.getCapabilities();
+        const settings = track.getSettings();
+        console.log(capabilities);
+        console.log(settings);
+        videoElement.play();
+      })
+      .catch(function (err) {
+        console.log("An error occured! " + err);
+      });
+
+      videoElement.addEventListener("canplay", function (ev) {
+      if (!streaming) {
+        console.log("video_size:" + video.videoWidth + "," + video.videoHeight);
+        videoElement.setAttribute("width", video.videoWidth);
+        videoElement.setAttribute("height", video.videoHeight);
+        streaming = true;
+      }
+      startVideoProcessing();
+    }, false);
+  }
+
+  function startVideoProcessing() {
+    if (!streaming) { console.warn("Please startup your webcam"); return; }
+    requestAnimationFrame(processVideo);
+    setTimeout(() => {
+      processARTryOn(); //three jsの処理を少しずらさないとios safariでtexture.needsUpdateが反映されない
+    }, 2000);
+  }
+
+  async function processVideo() {
+    //videoソースが画面解像度より小さい時の事前修正が必要(PC,ipadでありがち)
+
+    //videoソース読み込み
+    let vc = new cv.VideoCapture(videoElement);
+    let src = new cv.Mat(videoElement.videoHeight, videoElement.videoWidth, cv.CV_8UC4);
+    vc.read(src);
+
+    //スマホ用にvideoソースの解像度修正
+    let dst = new cv.Mat();
+    //指定した解像度になるように、アスペクト比を固定して、リサイズする
+    var h = videoElement.videoHeight;
+    var w = videoElement.videoWidth;
+    var scale = Math.pow((window.innerWidth * window.innerHeight) / (w * h), 0.5);
+    //console.log("scale:" + scale);
+    let dsize = new cv.Size(window.innerWidth, window.innerHeight);
+    cv.resize(src, dst, dsize, scale, scale, cv.INTER_AREA);
+
+    cv.imshow('canvas', dst);
+    await holistic.send({ image: videoElement });
+    src.delete();
+    dst.delete();
+    requestAnimationFrame(processVideo);
+  }
+
+  const holistic = new Holistic({
+    locateFile: (file) => {
+      return `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`;
+    }
+  });
+  holistic.setOptions({
+    modelComplexity: 1,
+    smoothLandmarks: true,
+    enableSegmentation: true,
+    smoothSegmentation: true,
+    refineFaceLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+  });
+  holistic.onResults(onResults);
 
   function onResults(results) {
 
-    stats.update(); // 毎フレームごとにstats.update()を呼ぶ必要がある。
-    requestAnimationFrame(render);
+    var canvasElement = document.getElementsByClassName('output_canvas')[0];
+    const canvasCtx = canvasElement.getContext('2d');
+
+    console.log("aaaaa");
+    var handle_margin = -0.5; // bagの持ち手と手の座標で計算するため、bagの中心座標から持ち手までのマージンが必要
 
     canvasCtx.save();
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -316,77 +331,125 @@
 
   }
 
-  function render(time) {
 
-    time *= 0.001;
+  function processARTryOn() {
+    var tmp_canvasElement = document.getElementsByClassName('output_canvas')[0];
+    var tmp_canvasCtx = tmp_canvasElement.getContext('2d');
+    console.log("aaa");
+    
+    // Stats
+    const stats = new Stats();
+    stats.setMode(0);
+    stats.domElement.style.position = "absolute";
+    stats.domElement.style.left = "0px";
+    stats.domElement.style.top = "0px";
+    document.body.appendChild(stats.dom);
 
-    // create camera image
-    const texture = new THREE.Texture(
-      document.getElementsByClassName('output_canvas')[0], THREE.UVMapping, THREE.ClampToEdgeWrapping,
-      THREE.ClampToEdgeWrapping);
-    texture.generateMipmaps = false;
-    texture.minFilter = THREE.LinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    texture.needsUpdate = true;
-    scene.background = texture;
+    // Set up the main camera
+    // new THREE.PerspectiveCamera(視野角, アスペクト比, near, far)
+    const webglCamera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+    webglCamera.position.z = 1;
 
+    const scene = new THREE.Scene();
 
-    //stats.update(); // 毎フレームごとにstats.update()を呼ぶ必要がある。
+    // Create lights
+    var light = new THREE.PointLight(0xEEEEEE);
+    light.position.set(20, 0, 20);
+    scene.add(light);
+    var lightAmb = new THREE.AmbientLight(0x777777);
+    scene.add(lightAmb);
+    // 平行光源
+    var lightDir = new THREE.DirectionalLight(0xFFFFFF);
+    lightDir.intensity = 1; // 光の強さを倍に
+    lightDir.position.set(1, 1, 1);
+    scene.add(lightDir);
 
-    renderer.clear();
-    renderer.clearDepth();
-    renderer.render(scene, webglCamera);
+    //3Dモデルをロード。今回はglb形式を使用  
+    const loader = new THREE.GLTFLoader();
+
+    loader.load('./obj/lv.glb',
+      function (gltf) {
+        model_Bag = gltf.scene; // THREE.Group
+        model_Bag.name = "FurBag"
+        model_Bag.visible = true;
+        model_Bag.scale.set(0.04, 0.04, 0.04);
+        model_Bag.position.set(0.0, 0.0, 0.0);
+        model_Bag.rotation.x = 0.0;
+        model_Bag.rotation.y = 1.5;
+        model_Bag.rotation.z = 0.0;
+        scene.add(model_Bag);
+      },
+      // called while loading is progressing
+      function (xhr) {
+        console.log('Bag: ' + (xhr.loaded / xhr.total * 100) + '% loaded');
+      },
+      // called when loading has errors
+      function (error) {
+        console.log('An error happened');
+      }
+    );
+
+    // renderer
+    var renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true
+    });
+    renderer.setClearColor(new THREE.Color(), 0);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.domElement.style.position = 'absolute';
+    renderer.domElement.style.top = '0px';
+    renderer.domElement.style.left = '0px';
+    renderer.autoClear = false; // To allow render overlay on top of sprited sphere
+    //document.body.appendChild( renderer.domElement );
+    document.getElementsByClassName("container")[0].appendChild(renderer.domElement);
+    renderer.domElement.id = "webgl";
+
+    // カメラ制御
+    //const controls = new THREE.OrbitControls(webglCamera, renderer.domElement);
+    //controls.target.set(0, 0, 0);
+    //controls.update();
+
+    window.addEventListener('resize', onWindowResize, false);
+
     requestAnimationFrame(render);
+
+    function onWindowResize() {
+
+      var resize_width = window.innerWidth;
+      var resize_height = window.innerHeight;
+
+      webglCamera.aspect = resize_width / resize_height;
+      webglCamera.updateProjectionMatrix();
+
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+    }
+
+    function render(time) {
+
+      time *= 0.001;
+
+      // create camera image
+      const texture = new THREE.Texture(
+        document.getElementById('canvas'), THREE.UVMapping, THREE.ClampToEdgeWrapping,
+        THREE.ClampToEdgeWrapping);
+      texture.generateMipmaps = false;
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.needsUpdate = true;
+      scene.background = texture;
+
+      //calcTextureOffset(texture);
+
+      stats.update(); // 毎フレームごとにstats.update()を呼ぶ必要がある。
+
+      renderer.clear();
+      renderer.clearDepth();
+      renderer.render(scene, webglCamera);
+      requestAnimationFrame(render);
+    }
+
   }
 
-  const holistic = new Holistic({
-    locateFile: (file) => {
-      return `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`;
-    }
-  });
-  holistic.setOptions({
-    modelComplexity: 1,
-    smoothLandmarks: true,
-    enableSegmentation: true,
-    smoothSegmentation: true,
-    refineFaceLandmarks: true,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5
-  });
-  holistic.onResults(onResults);
-
-  //const videoElement = document.createElement('video');
-  videoElement.width = window.innerWidth;
-  videoElement.height = window.innerHeight;
-  videoElement.setAttribute('playsinline', '');
-  videoElement.muted = true;
-  videoElement.autoplay = true;
-  videoElement.style.backgroundColor = '#000000';
-  videoElement.style.width = window.innerWidth > window.innerHeight ? '100vh' : '100vw';
-  videoElement.style.height = window.innerWidth > window.innerHeight ? '100vh' : '100vw';
-  document.body.appendChild(videoElement);
-
-  const videoOption = {
-    facingMode: 'environment',
-    width: 10000,
-    height: 10000,
-  };
-
-  window.navigator.mediaDevices.getUserMedia({
-    video: videoOption,
-    audio: false,
-  }).then((mediaStream) => {
-    videoElement.srcObject = mediaStream;
-  }).catch((error) => {
-    alert(`Catch Error name=[${error.name}] message=[${error.message}] constraint=[${error.constraint}]`);
-  });
-
-  const camera = new Camera(videoElement, {
-    onFrame: async () => {
-      await holistic.send({ image: videoElement });
-    },
-    //width: window.innerWidth,
-    //height: window.innerHeight
-  });
-  camera.start();
 </script>
